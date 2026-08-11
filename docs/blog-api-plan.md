@@ -90,8 +90,9 @@ NestJS는 Spring Boot를 본떠 만들어진 프레임워크라, 이 문서의 �
 
 ```prisma
 generator client {
-  provider = "prisma-client"        // 구버전의 "prisma-client-js"가 아님
-  output   = "../generated/prisma"  // v7은 출력 경로 명시 필수
+  provider     = "prisma-client"        // 구버전의 "prisma-client-js"가 아님
+  output       = "../generated/prisma"  // v7은 출력 경로 명시 필수
+  moduleFormat = "cjs"                  // NestJS가 CommonJS라 명시 필수 — 없으면 부팅 시 ESM 관련 에러("Prisma 7 설정" 섹션 참고)
 }
 
 datasource db {
@@ -181,7 +182,8 @@ Prisma 7은 6 이하와 설정 방식이 꽤 달라졌음. 학습된 예제나 �
 
 - **연결 URL은 `schema.prisma`에 못 씀** — `datasource`의 `url` 속성이 제거됨. 마이그레이션용 URL은 **`prisma.config.ts`**에 둠
 - **클라이언트는 드라이버 어댑터가 필수** — `new PrismaClient()`를 인자 없이 부르면 에러. `@prisma/adapter-pg` 사용
-- **생성된 클라이언트는 `@prisma/client`가 아니라 출력 경로에서 import**
+- **생성된 클라이언트는 `@prisma/client`가 아니라 출력 경로에서 import** — 이 프로젝트는 `tsconfig.json`이 `module`/`moduleResolution: "nodenext"`라 상대 경로 import에 `.js` 확장자를 명시해야 함(컴파일된 `.ts`→`.js`를 가리키는 nodenext 관례): `from '../../generated/prisma/client.js'`
+- **`generator client`에 `moduleFormat = "cjs"` 명시 필수** — 이거 없이 그냥 실행해봤더니(실제로 재현) 생성된 클라이언트가 기본적으로 ESM으로 나와서 NestJS(CommonJS 빌드) 부팅 시 `ReferenceError: exports is not defined in ES module scope`로 죽음. 공식 문서에 `moduleFormat`은 `esm`/`cjs` 중 선택, 기본값은 "환경에서 추론"인데 이 프로젝트 구성(`tsconfig`가 `nodenext`인데 `package.json`엔 `"type": "module"` 없음)에서는 추론이 틀림 — 명시해서 해결
 
 ```ts
 // prisma.config.ts
@@ -196,17 +198,30 @@ export default defineConfig({
 ```
 
 ```ts
-// src/prisma/prisma.service.ts — 앱 전체에서 인스턴스 하나만 유지
-import { PrismaClient } from '../../generated/prisma';
+// src/prisma/prisma.service.ts — 앱 전체에서 인스턴스 하나만 유지 (실제 구현 그대로)
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '../../generated/prisma/client.js';
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
-// PrismaService가 이 클라이언트를 감싸고 OnModuleDestroy에서 $disconnect()
+@Injectable()
+export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  constructor() {
+    super({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
+  }
+
+  async onModuleInit() {
+    await this.$connect();
+  }
+
+  async onModuleDestroy() {
+    await this.$disconnect();
+  }
+}
 ```
 
 - 필요한 패키지: `prisma`·`dotenv`(devDependencies), `@prisma/client`·`@prisma/adapter-pg`·`pg`
 - `.gitignore`에 **`/generated/prisma`**와 `.env` 추가 필요 (생성물·비밀정보 커밋 방지)
-- `npx prisma init`은 `.agents/skills/`와 `skills-lock.json`도 함께 생성함 — 이 프로젝트엔 불필요하니 지우거나 커밋에서 제외
+- `npx prisma init`은 `.agents/skills/`, `.claude/skills/`, `.windsurf/skills/`, `skills-lock.json`도 함께 생성함(실제 실행해서 확인) — 이 프로젝트엔 불필요하니 지우거나 커밋에서 제외
 
 ## API 엔드포인트
 
@@ -345,7 +360,7 @@ PORT                                      # Render가 자동 주입 (로컬은 4
 ## 다음 단계
 
 1. [x] 프로젝트 생성 (`nest new`, TypeScript strict, yarn)
-2. Prisma 7 도입 — `prisma init` 후 `schema.prisma`/`prisma.config.ts` 작성, `@prisma/adapter-pg`로 `PrismaService` 구성, Neon 연결, 첫 마이그레이션 (위 "Prisma 7 설정" 참고)
+2. [x] Prisma 7 도입 — `prisma init` 후 `schema.prisma`/`prisma.config.ts` 작성, `@prisma/adapter-pg`로 `PrismaService`(`src/prisma/`) 구성, 첫 마이그레이션까지 실제로 실행해 검증 (위 "Prisma 7 설정" 참고). **Neon 연결은 보류** — 계정 접근이 필요해 사용자 진행 필요(`DATABASE_URL`을 Neon 커넥션 문자열로 교체하면 됨), 지금은 `npx prisma dev`(Prisma 로컬 Postgres 셸)로 스키마·마이그레이션·NestJS 부팅까지 전부 실제 검증 완료. **실제로 재현해서 고친 버그**: 생성된 Prisma 클라이언트가 기본적으로 ESM으로 나와서 NestJS(CommonJS) 앱 부팅 시 `ReferenceError: exports is not defined in ES module scope`가 발생 — `generator client`에 `moduleFormat = "cjs"` 명시해서 해결(설계 문서 초안엔 없던 옵션, Prisma 7 공식 문서로 확인 후 반영)
 3. `main.ts`에 전역 `ValidationPipe` + 예외 필터 + Swagger(`/docs`) 설정
 4. `auth` 모듈 — `JwtGuard`/`RolesGuard`, `/auth/login`, `/auth/me`, OWNER 계정 시드
 5. `redis` 모듈 — 중복방지 헬퍼 + 로그인 브루트포스 제한을 `/auth/login`에 연결

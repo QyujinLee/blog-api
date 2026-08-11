@@ -49,3 +49,5 @@ pids
 .env
 .env.local
 .env.*.local
+
+/generated/prisma

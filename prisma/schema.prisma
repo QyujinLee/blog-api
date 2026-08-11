@@ -1,0 +1,82 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "cjs" // NestJS 기본 빌드가 CommonJS라 명시 — 자동 추론이 ESM으로 잘못 판단해 런타임에서 "exports is not defined" 에러 발생하는 걸 실제로 재현하고 고침
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  OWNER
+  VISITOR
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  name         String
+  avatarUrl    String?
+  role         Role
+  passwordHash String?   // OWNER만 사용
+  googleId     String?   @unique  // VISITOR만 사용
+  createdAt    DateTime  @default(now())
+  comments     Comment[]
+}
+
+model Post {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  title       String
+  summary     String
+  body        String   // 마크다운 원문
+  categorySlug String  // FK 아님 — Category.slug 참조용 문자열
+  tags        String[] // Postgres 네이티브 배열
+  seriesSlug  String?  // 클라이언트가 안 보냄 — 저장 시 seriesTitle을 slugify(Category와 동일 규칙), 같은 이름이면 항상 같은 slug로 묶임
+  seriesTitle String?
+  seriesOrder Int?     // 클라이언트가 안 보냄 — 같은 seriesSlug의 기존 최대 order + 1로 서버가 계산
+  pinned      Boolean  @default(false)
+  hidden      Boolean  @default(false)
+  viewCount   Int      @default(0)
+  likeCount   Int      @default(0)  // 로그인 불필요 — "누가 눌렀는지"는 저장 안 함, 카운트만
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  comments    Comment[]
+
+  @@index([categorySlug])
+  @@index([seriesSlug])
+}
+// 삭제는 하드 삭제 (댓글과 달리 모더레이션 대상이 아니라 소유자 본인이 관리하는 콘텐츠라 소프트 삭제 불필요)
+
+model Category {
+  slug  String @id
+  label String
+}
+// 자유 생성 — 글 저장 시 categorySlug가 없는 값이면 upsert (label을 slugify)
+
+model Comment {
+  id        String   @id @default(uuid())
+  postId    String
+  authorId  String
+  body      String
+  deleted   Boolean  @default(false)  // 소프트 삭제
+  createdAt DateTime @default(now())
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id])
+
+  @@index([postId])
+}
+// 글이 하드 삭제되면 댓글도 함께 삭제(onDelete: Cascade) — 남겨둘 이유가 없음
+
+model Resume {
+  id         Int      @id @default(1)  // 항상 1행만 유지
+  url        String
+  uploadedAt DateTime @updatedAt
+}
+
+model DailyVisit {
+  date  DateTime @id @db.Date
+  count Int      @default(0)
+}
+// 조회수 중복방지 통과한 요청마다 오늘 날짜 row를 +1 (홈페이지 "글 조회 추이" 그래프용)
