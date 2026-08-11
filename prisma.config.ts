@@ -9,6 +9,8 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    // 마이그레이션은 direct 연결 필요 — pooled(DATABASE_URL, 앱 런타임용)로는 세션 기능 제약으로 실패할 수 있음
+    // https://neon.com/docs/guides/prisma
+    url: process.env["DIRECT_URL"],
   },
 });

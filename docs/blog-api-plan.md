@@ -184,6 +184,8 @@ Prisma 7은 6 이하와 설정 방식이 꽤 달라졌음. 학습된 예제나 �
 - **클라이언트는 드라이버 어댑터가 필수** — `new PrismaClient()`를 인자 없이 부르면 에러. `@prisma/adapter-pg` 사용
 - **생성된 클라이언트는 `@prisma/client`가 아니라 출력 경로에서 import** — 이 프로젝트는 `tsconfig.json`이 `module`/`moduleResolution: "nodenext"`라 상대 경로 import에 `.js` 확장자를 명시해야 함(컴파일된 `.ts`→`.js`를 가리키는 nodenext 관례): `from '../../generated/prisma/client.js'`
 - **`generator client`에 `moduleFormat = "cjs"` 명시 필수** — 이거 없이 그냥 실행해봤더니(실제로 재현) 생성된 클라이언트가 기본적으로 ESM으로 나와서 NestJS(CommonJS 빌드) 부팅 시 `ReferenceError: exports is not defined in ES module scope`로 죽음. 공식 문서에 `moduleFormat`은 `esm`/`cjs` 중 선택, 기본값은 "환경에서 추론"인데 이 프로젝트 구성(`tsconfig`가 `nodenext`인데 `package.json`엔 `"type": "module"` 없음)에서는 추론이 틀림 — 명시해서 해결
+- **`.env`는 `prisma.config.ts`만 자동으로 읽음, 실행 중인 NestJS 앱은 아님** — `src/main.ts` 맨 위에 `import 'dotenv/config'`를 직접 추가해야 `process.env.DATABASE_URL` 등이 런타임에도 채워짐. 안 하면 `$connect()`/앱 부팅까진 아무 에러 없이 성공하는데(드라이버 어댑터의 `pg.Pool`이 lazy라 연결을 미루기 때문), **첫 실제 쿼리에서만** `ECONNREFUSED`로 죽음(`connectionString`이 `undefined`라 `pg`가 `localhost:5432`로 조용히 폴백) — 실제로 재현해서 잡음. `dotenv`는 프로덕션 런타임에도 필요하므로 devDependencies가 아니라 **dependencies**에 둬야 함(Render 배포 시 devDependencies는 설치 안 됨)
+- **Neon은 연결 문자열이 두 개** — Pooled(`DATABASE_URL`, 호스트명에 `-pooler`)는 앱 런타임 쿼리용, Direct(`DIRECT_URL`, `-pooler` 없음)는 마이그레이션 전용. `prisma.config.ts`의 `datasource.url`은 `DIRECT_URL`, `PrismaService`의 어댑터는 `DATABASE_URL`을 씀(Neon 공식 Prisma 가이드 기준)
 
 ```ts
 // prisma.config.ts
@@ -193,7 +195,7 @@ import { defineConfig } from 'prisma/config';
 export default defineConfig({
   schema: 'prisma/schema.prisma',
   migrations: { path: 'prisma/migrations' },
-  datasource: { url: process.env['DATABASE_URL'] },
+  datasource: { url: process.env['DIRECT_URL'] }, // 마이그레이션은 direct 연결
 });
 ```
 
@@ -219,7 +221,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 }
 ```
 
-- 필요한 패키지: `prisma`·`dotenv`(devDependencies), `@prisma/client`·`@prisma/adapter-pg`·`pg`
+- 필요한 패키지: `prisma`(devDependencies), `@prisma/client`·`@prisma/adapter-pg`·`pg`·`dotenv`(dependencies — `dotenv`는 `main.ts`가 런타임에 직접 씀)
 - `.gitignore`에 **`/generated/prisma`**와 `.env` 추가 필요 (생성물·비밀정보 커밋 방지)
 - `npx prisma init`은 `.agents/skills/`, `.claude/skills/`, `.windsurf/skills/`, `skills-lock.json`도 함께 생성함(실제 실행해서 확인) — 이 프로젝트엔 불필요하니 지우거나 커밋에서 제외
 
@@ -339,7 +341,8 @@ src/
 ## 환경변수 (Render)
 
 ```
-DATABASE_URL                              # Neon 연결 문자열 (Prisma는 단일 URL 사용)
+DATABASE_URL                              # Neon pooled 연결 문자열(-pooler) — 앱 런타임 쿼리용
+DIRECT_URL                                # Neon direct 연결 문자열(-pooler 없음) — 마이그레이션 전용
 JWT_SECRET                                # 이 서버만 보유, 프론트와 공유 안 함
 JWT_EXPIRATION                            # 예: 1h
 OWNER_EMAIL, OWNER_PASSWORD_HASH          # 최초 기동 시 소유자 계정 시드용 (bcrypt 해시)
@@ -350,7 +353,7 @@ R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, R2_ENDPOINT, R2_PUBLIC_URL_BA
 PORT                                      # Render가 자동 주입 (로컬은 4000)
 ```
 
-- Neon은 커넥션 풀러 URL(`-pooler`)을 제공 — Render 무료 인스턴스는 커넥션 수가 제한적이라 풀러 URL 사용 권장
+- Neon은 pooled(`-pooler`)/direct 두 연결 문자열을 제공 — Render 무료 인스턴스는 커넥션 수가 제한적이라 앱 쿼리는 pooled(`DATABASE_URL`), 마이그레이션은 direct(`DIRECT_URL`)로 분리해서 씀 ("Prisma 7 설정" 섹션 참고)
 
 ## 테스트
 
@@ -360,7 +363,11 @@ PORT                                      # Render가 자동 주입 (로컬은 4
 ## 다음 단계
 
 1. [x] 프로젝트 생성 (`nest new`, TypeScript strict, yarn)
-2. [x] Prisma 7 도입 — `prisma init` 후 `schema.prisma`/`prisma.config.ts` 작성, `@prisma/adapter-pg`로 `PrismaService`(`src/prisma/`) 구성, 첫 마이그레이션까지 실제로 실행해 검증 (위 "Prisma 7 설정" 참고). **Neon 연결은 보류** — 계정 접근이 필요해 사용자 진행 필요(`DATABASE_URL`을 Neon 커넥션 문자열로 교체하면 됨), 지금은 `npx prisma dev`(Prisma 로컬 Postgres 셸)로 스키마·마이그레이션·NestJS 부팅까지 전부 실제 검증 완료. **실제로 재현해서 고친 버그**: 생성된 Prisma 클라이언트가 기본적으로 ESM으로 나와서 NestJS(CommonJS) 앱 부팅 시 `ReferenceError: exports is not defined in ES module scope`가 발생 — `generator client`에 `moduleFormat = "cjs"` 명시해서 해결(설계 문서 초안엔 없던 옵션, Prisma 7 공식 문서로 확인 후 반영)
+2. [x] Prisma 7 도입 — `prisma init` 후 `schema.prisma`/`prisma.config.ts` 작성, `@prisma/adapter-pg`로 `PrismaService`(`src/prisma/`) 구성, 첫 마이그레이션까지 실제로 실행해 검증 (위 "Prisma 7 설정" 참고). **실제로 재현해서 고친 버그 2개**:
+   - 생성된 Prisma 클라이언트가 기본적으로 ESM으로 나와서 NestJS(CommonJS) 앱 부팅 시 `ReferenceError: exports is not defined in ES module scope`가 발생 — `generator client`에 `moduleFormat = "cjs"` 명시해서 해결(설계 문서 초안엔 없던 옵션, Prisma 7 공식 문서로 확인 후 반영)
+   - **Neon 실제 연결 후 발견**: `$connect()`와 NestJS 부팅까진 매번 문제없이 성공했지만, 실제 쿼리(`user.count()`)를 처음 날려보니 `ECONNREFUSED`로 실패. `pg.Pool`은 lazy라 `$connect()`만으론 실제 연결 시도가 안 일어나 여태 못 잡고 있었던 것. 원인: `src/main.ts`가 `.env`를 로드한 적이 없어서(`prisma.config.ts`만 자체적으로 `dotenv/config`를 import — Prisma CLI에만 적용되고 실행 중인 NestJS 앱엔 적용 안 됨) `process.env.DATABASE_URL`이 런타임엔 항상 `undefined`였고, `pg.Pool`이 기본값(`localhost:5432`)으로 조용히 폴백해 거부당한 것. `main.ts` 최상단에 `import 'dotenv/config'` 추가로 해결 + `dotenv`를 devDependencies에서 dependencies로 이동(프로덕션에도 필요하므로 — 안 옮기면 Render 배포 시 devDependencies가 설치 안 돼 있어 앱이 아예 부팅 실패함). **평소 `$connect()` 성공만으로 DB 연결을 검증했다고 믿으면 안 된다는 교훈** — 실제 쿼리까지 날려봐야 진짜 검증
+   - **Neon 연결 완료**(싱가포르 리전) — Prisma+Neon 공식 가이드대로 `DATABASE_URL`은 pooled(앱 런타임, `prisma.service.ts`의 어댑터가 사용), `DIRECT_URL`은 direct(마이그레이션 전용, `prisma.config.ts`의 datasource가 사용)로 분리. `prisma migrate deploy`로 실제 Neon에 마이그레이션 적용 + NestJS가 실제 쿼리(`user.count()`)까지 성공하는 것 확인 후 임시 코드 원복
+   - **프로덕션 빌드까지 실제로 검증하다 3번째 버그 발견**: `package.json`의 `start:prod`가 `node dist/main`이었는데, 실제 `nest build` 산출물은 `dist/src/main.js` — `prisma.config.ts`(프로젝트 루트)와 `generated/prisma`(역시 루트, `src/` 밖)를 같이 컴파일하다 보니 tsc가 공통 루트를 프로젝트 루트로 잡아서 `dist/` 아래 `src/`가 그대로 중첩됨. `nest start`(dev)는 이 스크립트를 안 타서 여태 못 잡았고, Render 배포 시 그대로 뒀으면 부팅 자체가 실패했을 것. `dist/src/main`으로 수정 후 실제 컴파일된 빌드로 Neon 연결까지 재검증 완료
 3. `main.ts`에 전역 `ValidationPipe` + 예외 필터 + Swagger(`/docs`) 설정
 4. `auth` 모듈 — `JwtGuard`/`RolesGuard`, `/auth/login`, `/auth/me`, OWNER 계정 시드
 5. `redis` 모듈 — 중복방지 헬퍼 + 로그인 브루트포스 제한을 `/auth/login`에 연결
