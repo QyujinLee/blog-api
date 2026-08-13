@@ -1,12 +1,17 @@
 import 'dotenv/config';
 import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Render는 리버스 프록시 뒤에서 실행됨 — 이거 없으면 req.ip가 항상 프록시 IP로 잡혀서
+  // IP별 로그인 브루트포스 제한(auth.service.ts)이 사실상 전역으로 걸려버림
+  app.set('trust proxy', 1);
 
   app.useGlobalPipes(
     new ValidationPipe({

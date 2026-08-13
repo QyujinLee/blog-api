@@ -1,18 +1,51 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import type { User } from '../../generated/prisma/client.js';
 import type { Role } from '../../generated/prisma/enums.js';
+
+const LOGIN_ATTEMPT_LIMIT = 5;
+const LOGIN_ATTEMPT_TTL_SECONDS = 15 * 60;
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly redis: RedisService,
   ) {}
 
-  async validateOwner(email: string, password: string): Promise<User> {
+  // IP별 실패 횟수를 먼저 확인해 초과 시 429(비밀번호 검증은 bcrypt 비용이 있어 그 전에 차단),
+  // 실패하면 카운트 증가, 성공하면 카운트 리셋(정상 로그인 후 이전 실패 이력에 발목 안 잡히게)
+  async login(email: string, password: string, ip: string): Promise<string> {
+    const attemptKey = `login-attempt:${ip}`;
+    const attempts = await this.redis.getCount(attemptKey);
+
+    if (attempts >= LOGIN_ATTEMPT_LIMIT) {
+      throw new HttpException(
+        '로그인 시도 횟수를 초과했습니다. 잠시 후 다시 시도해주세요.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    try {
+      const user = await this.validateOwner(email, password);
+      await this.redis.reset(attemptKey);
+      return this.signToken(user.id, user.role);
+    } catch (error) {
+      await this.redis.incrementWithTtl(attemptKey, LOGIN_ATTEMPT_TTL_SECONDS);
+      throw error;
+    }
+  }
+
+  private async validateOwner(email: string, password: string): Promise<User> {
     const user = await this.prisma.user.findUnique({ where: { email } });
 
     if (!user || user.role !== 'OWNER' || !user.passwordHash) {

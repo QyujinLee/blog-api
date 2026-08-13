@@ -14,9 +14,15 @@ export class AuthController {
   ) {}
 
   @Post('login')
-  async login(@Body() dto: LoginDto): Promise<{ token: string }> {
-    const user = await this.authService.validateOwner(dto.email, dto.password);
-    const token = await this.authService.signToken(user.id, user.role);
+  async login(
+    @Body() dto: LoginDto,
+    @Req() request: Request,
+  ): Promise<{ token: string }> {
+    const token = await this.authService.login(
+      dto.email,
+      dto.password,
+      request.ip ?? 'unknown',
+    );
     return { token };
   }
 
