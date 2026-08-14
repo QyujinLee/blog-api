@@ -6,6 +6,7 @@ import { RedisModule } from '../redis/redis.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtGuard } from './jwt.guard';
+import { OptionalJwtGuard } from './optional-jwt.guard';
 import { RolesGuard } from './roles.guard';
 import { OwnerSeedService } from './owner-seed.service';
 
@@ -21,7 +22,13 @@ import { OwnerSeedService } from './owner-seed.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtGuard, RolesGuard, OwnerSeedService],
-  exports: [JwtGuard, RolesGuard, JwtModule],
+  providers: [
+    AuthService,
+    JwtGuard,
+    OptionalJwtGuard,
+    RolesGuard,
+    OwnerSeedService,
+  ],
+  exports: [JwtGuard, OptionalJwtGuard, RolesGuard, JwtModule],
 })
 export class AuthModule {}

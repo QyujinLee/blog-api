@@ -7,6 +7,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import type { Request } from 'express';
 import { AuthenticatedUser, JwtPayload } from './jwt-payload.interface';
+import { extractBearerToken } from './extract-bearer-token';
 
 @Injectable()
 export class JwtGuard implements CanActivate {
@@ -14,7 +15,7 @@ export class JwtGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
-    const token = this.extractTokenFromHeader(request);
+    const token = extractBearerToken(request);
 
     if (!token) {
       throw new UnauthorizedException('인증 토큰이 없습니다.');
@@ -32,10 +33,5 @@ export class JwtGuard implements CanActivate {
     }
 
     return true;
-  }
-
-  private extractTokenFromHeader(request: Request): string | undefined {
-    const [type, token] = request.headers.authorization?.split(' ') ?? [];
-    return type === 'Bearer' ? token : undefined;
   }
 }
