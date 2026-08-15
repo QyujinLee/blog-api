@@ -8,6 +8,7 @@ import { AuthService } from './auth.service';
 import { JwtGuard } from './jwt.guard';
 import { OptionalJwtGuard } from './optional-jwt.guard';
 import { RolesGuard } from './roles.guard';
+import { InternalSecretGuard } from './internal-secret.guard';
 import { OwnerSeedService } from './owner-seed.service';
 
 @Module({
@@ -27,6 +28,7 @@ import { OwnerSeedService } from './owner-seed.service';
     JwtGuard,
     OptionalJwtGuard,
     RolesGuard,
+    InternalSecretGuard,
     OwnerSeedService,
   ],
   exports: [JwtGuard, OptionalJwtGuard, RolesGuard, JwtModule],

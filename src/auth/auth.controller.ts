@@ -12,7 +12,9 @@ import type { Request } from 'express';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
+import { GoogleLoginDto } from './dto/google-login.dto';
 import { JwtGuard } from './jwt.guard';
+import { InternalSecretGuard } from './internal-secret.guard';
 import { AuthenticatedUser } from './jwt-payload.interface';
 
 @Controller('auth')
@@ -33,6 +35,14 @@ export class AuthController {
       dto.password,
       request.ip ?? 'unknown',
     );
+    return { token };
+  }
+
+  @Post('google')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(InternalSecretGuard)
+  async google(@Body() dto: GoogleLoginDto): Promise<{ token: string }> {
+    const token = await this.authService.loginWithGoogle(dto);
     return { token };
   }
 

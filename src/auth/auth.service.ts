@@ -8,6 +8,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { GoogleLoginDto } from './dto/google-login.dto';
 import type { User } from '../../generated/prisma/client.js';
 import type { Role } from '../../generated/prisma/enums.js';
 
@@ -43,6 +44,24 @@ export class AuthService {
       await this.redis.incrementWithTtl(attemptKey, LOGIN_ATTEMPT_TTL_SECONDS);
       throw error;
     }
+  }
+
+  // googleId로 기존 방문자를 찾아 로그인시키거나, 처음이면 VISITOR로 새로 만듦.
+  // 프로필(name/avatarUrl/email)은 매번 최신 Google 프로필로 갱신
+  async loginWithGoogle(dto: GoogleLoginDto): Promise<string> {
+    const user = await this.prisma.user.upsert({
+      where: { googleId: dto.googleId },
+      update: { name: dto.name, avatarUrl: dto.avatarUrl, email: dto.email },
+      create: {
+        email: dto.email,
+        name: dto.name,
+        avatarUrl: dto.avatarUrl,
+        googleId: dto.googleId,
+        role: 'VISITOR',
+      },
+    });
+
+    return this.signToken(user.id, user.role);
   }
 
   private async validateOwner(email: string, password: string): Promise<User> {
