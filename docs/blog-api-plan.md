@@ -322,6 +322,7 @@ src/
     category.controller.ts, category.service.ts, category.module.ts
   comment/
     comment.controller.ts, comment.service.ts, comment.module.ts
+    dto/                        # class-validator 데코레이터 붙인 요청 DTO
   auth/
     auth.controller.ts, auth.service.ts, auth.module.ts
     jwt.guard.ts, optional-jwt.guard.ts, roles.guard.ts, internal-secret.guard.ts
@@ -375,7 +376,7 @@ PORT                                      # Render가 자동 주입 (로컬은 4
 5. [x] `redis` 모듈 — `ioredis`로 `checkOnce`(`SET key 1 EX ttl NX`, 조회수/좋아요 중복방지용 범용 헬퍼) / `getCount` / `incrementWithTtl`(로그인 실패 카운트, 첫 증가 때만 TTL 설정) / `reset` 구현. `AuthService.login()`에 연결 — IP별 실패 횟수를 비밀번호 검증 **전에** 먼저 확인해 5회(15분 윈도) 초과 시 429(bcrypt 검증 비용을 아낌), 실패 시 카운트 증가, 성공 시 리셋. Upstash(싱가포르, Regional, Eviction 켜짐 — 우리 키는 전부 TTL이라 optimistic-volatile 정책과 잘 맞음) 실제 인스턴스로 원자성(`SET NX` 동시 호출 시 하나만 성공)/카운터+TTL/5회 실패→429/429는 카운트 안 늘어남/성공 시 리셋까지 전부 실제 요청으로 검증. **검증 중 발견한 버그**: `POST /auth/login`이 NestJS POST 기본값인 201을 반환하고 있었음(설계 문서 스펙은 "200 { token }") — `@HttpCode(HttpStatus.OK)` 추가로 수정. Render는 리버스 프록시 뒤에 있어 `main.ts`에 `app.set('trust proxy', 1)`(`NestExpressApplication`) 없으면 `req.ip`가 항상 프록시 IP로 잡혀 IP별 제한이 사실상 전역으로 걸려버리는 걸 미리 확인하고 반영
 6. [x] `post` 모듈 — CRUD(slug 기준) + `revalidate.service.ts` 웹훅 연결. `GET /posts`(카테고리/태그 필터, 태그는 AND 시맨틱), `GET /posts/{slug}`, `POST/PUT/PATCH/DELETE`(전부 OWNER). 공개지만 OWNER면 hidden 포함해야 하는 두 GET 엔드포인트를 위해 `OptionalJwtGuard` 신설(`JwtGuard`와 토큰 추출 로직 `extract-bearer-token.ts`로 공유, 토큰 없거나 무효해도 막지 않고 익명 취급). `src/common/slugify.ts`(제목 slug는 **한글 원문 유지** — 사용자와 논의 후 결정, WordPress도 발행 후 slug 고정이 표준적인 방식임을 확인). 카테고리는 label로 upsert, 시리즈는 seriesTitle 있으면 기존 최대 order+1 자동 계산. **구현하다 스스로 잡은 버그**: 이미 같은 시리즈에 속한 글을 다른 필드만 고쳐서 수정해도 order가 매번 맨 뒤로 밀리던 로직 — 수정 전 기존 seriesSlug와 비교해서 안 바뀌었으면 order 유지하도록 고침(테스트 이전에 코드 리뷰로 발견). 실제 Neon으로 전부 검증: 한글 slug 생성/collision 시 `-2` suffix, 시리즈 order 1→2 및 수정 후 유지, hidden 토글 시 공개/OWNER 노출 차이, 카테고리·태그 필터, validation 400, 무인증 401. **`blog` 프론트를 로컬로 같이 띄워서 실제 revalidate 웹훅이 `/api/revalidate`까지 도달하는 것도 로그로 직접 확인**(리포 간 실제 연동 검증)
 7. [x] `/auth/google` (`InternalSecretGuard` 보호) 구현 — `X-Internal-Secret` 헤더를 `INTERNAL_SECRET` 환경변수와 비교(미설정 시 항상 거부). `AuthService.loginWithGoogle()`이 `googleId`로 `User` upsert(없으면 `role: VISITOR`로 생성, 있으면 name/avatarUrl/email을 최신 Google 프로필로 갱신) 후 JWT 발급. 로컬에서 실제 Neon으로 검증: 시크릿 없음/오답(401), 신규 googleId → VISITOR 생성 + `/auth/me`로 role 확인, 같은 googleId 재로그인 시 새 행 안 생기고 프로필만 갱신(`id` 동일함 직접 확인)까지 개발 빌드·프로덕션 빌드(`dist/src/main`) 둘 다에서 확인
-8. `comment` 모듈 — 작성/목록/소프트 삭제
+8. [x] `comment` 모듈 — `@Controller()`에 전체 경로를 직접 지정(`posts/:slug/comments` GET/POST, `comments/:id` DELETE — 베이스 prefix가 서로 달라서). `GET`은 `OptionalJwtGuard`(hidden 글이면 `PostService.findBySlug`가 알아서 404), `POST`는 `JwtGuard`만(VISITOR/OWNER 둘 다 허용), `DELETE`는 `JwtGuard`+`RolesGuard('OWNER')`. 소프트 삭제는 DB `body`를 안 지우고 `deleted` 플래그만 세우고 응답에서만 빈 문자열로 가림(모더레이션 로그 목적). `PostModule`에서 `PostService` export 누락된 것도 이번에 추가. 실제 Neon으로 검증: 무인증 작성 거부(401)/방문자·소유자 작성/방문자 삭제 시도 거부(403)/소유자 삭제(204)+소프트삭제 응답 확인/빈 본문 검증(400)/존재하지 않는 댓글 삭제(404)/hidden 글의 댓글 목록·작성이 공개자에겐 404, 소유자에겐 정상/글 삭제 시 댓글 cascade 삭제까지 개발·프로덕션 빌드 둘 다 확인
 9. `category` 모듈 + `GET /tags` (자동완성용)
 10. R2 연동 — 이미지/이력서 업로드 API
 11. 검색(full-text, `$queryRaw` 가중치 랭킹) + 조회수/좋아요 + 통계 API
