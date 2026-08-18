@@ -8,7 +8,7 @@
 - 배포: **Render 무료 웹서비스** (512MB RAM, 0.1 CPU, 월 750시간 — 개인 블로그엔 충분. 15분 미사용 시 슬립되지만 Node 런타임이라 재기동이 대략 1~2초로 짧음)
 - DB: **Neon 무료 Postgres 우선 추천** (0.5GB 저장공간, 월 100 CU-hour, 미사용 시 컴퓨트가 자동으로 잠들었다가 다음 쿼리 때 자동으로 깨어남 — 사람 개입 불필요). Supabase(500MB 저장공간)도 무료지만 **7일 미사용 시 프로젝트가 일시정지되고 대시보드에서 수동으로 복구해야 함** — 개인 블로그처럼 트래픽이 뜸할 수 있는 서비스엔 운영 리스크라 후순위. 둘 다 Render 자체 DB(무료 티어 만료 정책 있음)보다 나음
 - Redis: 조회수 중복방지 + 로그인 브루트포스 방어용. **Upstash 무료 티어**(256MB, 월 50만 명령 — 이 프로젝트 트래픽엔 충분히 넉넉함) 확인 완료
-- 이미지/이력서 저장: **Cloudflare R2** (S3 호환 API)
+- 이미지 저장: **Cloudflare R2** (S3 호환 API) — 이력서는 R2 대신 프론트 저장소의 정적 파일(`public/resume.pdf`)로 관리(아래 "다음 단계" 참고, 자주 안 바뀌는 파일이라 업로드 API 불필요)
 - API 문서화: **`@nestjs/swagger`** → `/docs`
 
 ### 왜 Spring Boot가 아니라 NestJS인가
@@ -43,12 +43,12 @@ NestJS는 Spring Boot를 본떠 만들어진 프레임워크라, 이 문서의 �
 
 | 종류 | 보호 방식 |
 |---|---|
-| 공개 조회 (글 목록/상세, 댓글 목록, 검색, 이력서 URL, 통계) | 없음 — 원래 공개 데이터 |
+| 공개 조회 (글 목록/상세, 댓글 목록, 검색, 통계) | 없음 — 원래 공개 데이터 |
 | `POST /posts/{slug}/like` | 없음 — 인증 개념 자체가 없는 기능, Redis IP+day로만 가벼운 어뷰징 방지 |
 | `POST /auth/login` | 비밀번호 자체가 보호 수단 + Redis 기반 IP별 시도 횟수 제한 |
 | `POST /auth/google` | **`X-Internal-Secret` 헤더 필수**(`InternalSecretGuard`) — Next.js BFF만 아는 공유 시크릿. 이게 없으면 "이 이메일로 로그인시켜줘"라는 요청을 아무나 보낼 수 있어서(신원을 자체적으로 증명 안 하고 그냥 믿어주는 구조라) 반드시 필요 |
 | `GET /auth/me` | `JwtGuard`(유효성만 검사, role 조건 없음 — 유효하지 않으면 401) |
-| 글 CRUD, 이력서 업로드 | `JwtGuard` + `RolesGuard('OWNER')` |
+| 글 CRUD | `JwtGuard` + `RolesGuard('OWNER')` |
 | 이미지 업로드 | `JwtGuard` + `RolesGuard('OWNER')` (글 작성은 소유자만 하므로) |
 | 댓글 작성 | `JwtGuard` (VISITOR/OWNER 무관 — 누구든 로그인만 하면) |
 | 댓글 삭제(모더레이션) | `JwtGuard` + `RolesGuard('OWNER')` |
@@ -161,12 +161,6 @@ model Comment {
 }
 // 글이 하드 삭제되면 댓글도 함께 삭제(onDelete: Cascade) — 남겨둘 이유가 없음
 
-model Resume {
-  id         Int      @id @default(1)  // 항상 1행만 유지
-  url        String
-  uploadedAt DateTime @updatedAt
-}
-
 model DailyVisit {
   date  DateTime @id @db.Date
   count Int      @default(0)
@@ -247,8 +241,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 | POST | `/auth/google` | `X-Internal-Secret` | 방문자 로그인/가입 |
 | GET | `/auth/me` | JWT | 세션 정보 |
 | POST | `/images` | OWNER | 이미지 업로드 → R2, ≤5MB, jpg/png/webp/gif |
-| GET | `/resume` | 공개 | 현재 이력서 URL |
-| POST | `/resume` | OWNER | 이력서 업로드 → R2 (기존 덮어쓰기), ≤10MB, PDF만 |
 | GET | `/stats/popular-posts` | 공개 | 조회수 TOP N |
 | GET | `/stats/visits` | 공개 | 최근 N일 글 조회 추이 (`DailyVisit`) |
 
@@ -298,7 +290,7 @@ async notifyChanged(): Promise<void> {
 
 - S3 호환 SDK(**`@aws-sdk/client-s3`**, endpoint만 R2로 override) 사용
 - 환경변수: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_ENDPOINT`, `R2_PUBLIC_URL_BASE`
-- 업로드 키 규칙: 이미지는 `images/{uuid}.{ext}`, 이력서는 고정 키 `resume/current.pdf`(덮어쓰기)
+- 업로드 키 규칙: 이미지는 `images/{uuid}.{ext}`
 - 업로드 수신은 `@nestjs/platform-express`의 `FileInterceptor`(multer) 사용, 크기/MIME 타입은 서버에서 재검증(프론트 검증만 믿지 않음)
 
 ## 프로젝트 구조 (기능별 모듈)
@@ -330,8 +322,6 @@ src/
     owner-seed.service.ts       # 최초 기동 시 OWNER 계정 시드
   image/
     image.controller.ts, r2.service.ts
-  resume/
-    resume.controller.ts, resume.service.ts
   stats/
     stats.controller.ts, stats.service.ts
   revalidate/
@@ -378,6 +368,6 @@ PORT                                      # Render가 자동 주입 (로컬은 4
 7. [x] `/auth/google` (`InternalSecretGuard` 보호) 구현 — `X-Internal-Secret` 헤더를 `INTERNAL_SECRET` 환경변수와 비교(미설정 시 항상 거부). `AuthService.loginWithGoogle()`이 `googleId`로 `User` upsert(없으면 `role: VISITOR`로 생성, 있으면 name/avatarUrl/email을 최신 Google 프로필로 갱신) 후 JWT 발급. 로컬에서 실제 Neon으로 검증: 시크릿 없음/오답(401), 신규 googleId → VISITOR 생성 + `/auth/me`로 role 확인, 같은 googleId 재로그인 시 새 행 안 생기고 프로필만 갱신(`id` 동일함 직접 확인)까지 개발 빌드·프로덕션 빌드(`dist/src/main`) 둘 다에서 확인
 8. [x] `comment` 모듈 — `@Controller()`에 전체 경로를 직접 지정(`posts/:slug/comments` GET/POST, `comments/:id` DELETE — 베이스 prefix가 서로 달라서). `GET`은 `OptionalJwtGuard`(hidden 글이면 `PostService.findBySlug`가 알아서 404), `POST`는 `JwtGuard`만(VISITOR/OWNER 둘 다 허용), `DELETE`는 `JwtGuard`+`RolesGuard('OWNER')`. 소프트 삭제는 DB `body`를 안 지우고 `deleted` 플래그만 세우고 응답에서만 빈 문자열로 가림(모더레이션 로그 목적). `PostModule`에서 `PostService` export 누락된 것도 이번에 추가. 실제 Neon으로 검증: 무인증 작성 거부(401)/방문자·소유자 작성/방문자 삭제 시도 거부(403)/소유자 삭제(204)+소프트삭제 응답 확인/빈 본문 검증(400)/존재하지 않는 댓글 삭제(404)/hidden 글의 댓글 목록·작성이 공개자에겐 404, 소유자에겐 정상/글 삭제 시 댓글 cascade 삭제까지 개발·프로덕션 빌드 둘 다 확인
 9. [x] `category` 모듈 + `GET /tags`(자동완성용) — `CategoryController`(`GET /categories`, label 오름차순)와 `PostModule` 소속 `tag.controller.ts`(`SELECT DISTINCT unnest(tags) ... WHERE hidden = false` raw 쿼리, 별도 service 없이 컨트롤러가 `PrismaService` 직접 사용) 구현. 실제 Neon + 프로덕션 빌드(`dist/src/main`)로 검증: `/categories` 실데이터 응답 확인, 임시 글(태그 2개)을 hidden:false/true 각각으로 만들어 `/tags`가 공개 글의 태그만 정확히 반환하고 hidden 글의 태그는 제외되는 것까지 라이브 서버 HTTP 응답으로 확인 후 삭제
-10. R2 연동 — 이미지/이력서 업로드 API
+10. R2 연동 — 이미지 업로드 API
 11. 검색(full-text, `$queryRaw` 가중치 랭킹) + 조회수/좋아요 + 통계 API
 12. Render 배포, 환경변수 설정, 프론트와 실제 연동 테스트
