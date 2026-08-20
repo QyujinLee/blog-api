@@ -69,12 +69,6 @@ model Comment {
 }
 // 글이 하드 삭제되면 댓글도 함께 삭제(onDelete: Cascade) — 남겨둘 이유가 없음
 
-model Resume {
-  id         Int      @id @default(1)  // 항상 1행만 유지
-  url        String
-  uploadedAt DateTime @updatedAt
-}
-
 model DailyVisit {
   date  DateTime @id @db.Date
   count Int      @default(0)
