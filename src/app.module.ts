@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { PostModule } from './post/post.module';
 import { CommentModule } from './comment/comment.module';
 import { CategoryModule } from './category/category.module';
+import { ImageModule } from './image/image.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { CategoryModule } from './category/category.module';
     PostModule,
     CommentModule,
     CategoryModule,
+    ImageModule,
   ],
   controllers: [AppController],
   providers: [AppService],
