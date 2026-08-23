@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -43,6 +44,54 @@ export class PostController {
       tags: tags ? tags.split(',').filter(Boolean) : undefined,
       series,
     });
+  }
+
+  // ":slug"보다 먼저 선언해야 함 — 안 그러면 "search"가 slug 파라미터로 잡혀버림
+  @Get('search')
+  @UseGuards(OptionalJwtGuard)
+  search(
+    @Req() request: RequestWithOptionalUser,
+    @Query('q') q?: string,
+    @Query('sort') sort?: string,
+    @Query('category') category?: string,
+    @Query('tags') tags?: string,
+  ) {
+    if (!q?.trim()) {
+      throw new BadRequestException('검색어(q)는 필수입니다.');
+    }
+
+    return this.postService.search(request.user?.role === 'OWNER', {
+      q: q.trim(),
+      sort,
+      category,
+      tags: tags ? tags.split(',').filter(Boolean) : undefined,
+    });
+  }
+
+  @Post(':slug/view')
+  @HttpCode(HttpStatus.OK)
+  async view(
+    @Param('slug') slug: string,
+    @Req() request: Request,
+  ): Promise<{ viewCount: number }> {
+    const viewCount = await this.postService.recordView(
+      slug,
+      request.ip ?? 'unknown',
+    );
+    return { viewCount };
+  }
+
+  @Post(':slug/like')
+  @HttpCode(HttpStatus.OK)
+  async like(
+    @Param('slug') slug: string,
+    @Req() request: Request,
+  ): Promise<{ likeCount: number }> {
+    const likeCount = await this.postService.recordLike(
+      slug,
+      request.ip ?? 'unknown',
+    );
+    return { likeCount };
   }
 
   @Get(':slug')

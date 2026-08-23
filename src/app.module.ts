@@ -7,6 +7,7 @@ import { PostModule } from './post/post.module';
 import { CommentModule } from './comment/comment.module';
 import { CategoryModule } from './category/category.module';
 import { ImageModule } from './image/image.module';
+import { StatsModule } from './stats/stats.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { ImageModule } from './image/image.module';
     CommentModule,
     CategoryModule,
     ImageModule,
+    StatsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

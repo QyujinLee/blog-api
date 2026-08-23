@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RevalidateService } from '../revalidate/revalidate.service';
+import { RedisService } from '../redis/redis.service';
 import { slugify } from '../common/slugify';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
@@ -13,11 +14,26 @@ export interface FindAllQuery {
   series?: string;
 }
 
+export interface SearchQuery {
+  q: string;
+  sort?: string;
+  category?: string;
+  tags?: string[];
+}
+
+const ONE_DAY_SECONDS = 24 * 60 * 60;
+
+// Redis 키/DailyVisit 둘 다 "yyyy-MM-dd" 하루 단위로 맞춤 — UTC 기준(서버 로컬 타임존에 안 흔들리게)
+function todayDateString(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 @Injectable()
 export class PostService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly revalidate: RevalidateService,
+    private readonly redis: RedisService,
   ) {}
 
   async findAll(isOwner: boolean, query: FindAllQuery): Promise<Post[]> {
@@ -40,6 +56,93 @@ export class PostService {
     }
 
     return post;
+  }
+
+  // 한글은 to_tsvector가 어절 단위로만 토큰화돼 부분검색이 안 되고(예: "인증과" 안에서 "인증" 검색 실패),
+  // pg_trgm 유사도도 짧은 검색어 대비 긴 제목에선 기본 임계값을 못 넘어 매칭이 안 됨(둘 다 실제 Neon으로 확인).
+  // 그래서 ILIKE 부분문자열 매칭 + title(3) > tags(2) > body(1) 수동 가중치 정렬로 구현
+  async search(isOwner: boolean, query: SearchQuery): Promise<Post[]> {
+    const category = query.category ?? null;
+    const tags = query.tags?.length ? query.tags : null;
+
+    if (query.sort === 'latest') {
+      return this.prisma.$queryRaw<Post[]>`
+        SELECT * FROM "Post"
+        WHERE (hidden = false OR ${isOwner})
+          AND (title ILIKE '%' || ${query.q} || '%'
+            OR ${query.q} = ANY(tags)
+            OR body ILIKE '%' || ${query.q} || '%')
+          AND (${category}::text IS NULL OR "categorySlug" = ${category})
+          AND (${tags}::text[] IS NULL OR tags @> ${tags}::text[])
+        ORDER BY "createdAt" DESC
+      `;
+    }
+
+    return this.prisma.$queryRaw<Post[]>`
+      SELECT * FROM "Post"
+      WHERE (hidden = false OR ${isOwner})
+        AND (title ILIKE '%' || ${query.q} || '%'
+          OR ${query.q} = ANY(tags)
+          OR body ILIKE '%' || ${query.q} || '%')
+        AND (${category}::text IS NULL OR "categorySlug" = ${category})
+        AND (${tags}::text[] IS NULL OR tags @> ${tags}::text[])
+      ORDER BY
+        CASE
+          WHEN title ILIKE '%' || ${query.q} || '%' THEN 3
+          WHEN ${query.q} = ANY(tags) THEN 2
+          WHEN body ILIKE '%' || ${query.q} || '%' THEN 1
+          ELSE 0
+        END DESC,
+        "createdAt" DESC
+    `;
+  }
+
+  // 하루 1회(IP+날짜) 통과한 요청만 viewCount 증가 + DailyVisit 오늘 행 +1(홈 트래픽 그래프용)
+  async recordView(slug: string, ip: string): Promise<number> {
+    const post = await this.findBySlug(slug, false);
+    const isFirstToday = await this.redis.checkOnce(
+      `view:${slug}:${ip}:${todayDateString()}`,
+      ONE_DAY_SECONDS,
+    );
+
+    if (!isFirstToday) {
+      return post.viewCount;
+    }
+
+    const today = new Date(`${todayDateString()}T00:00:00.000Z`);
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.post.update({
+        where: { slug },
+        data: { viewCount: { increment: 1 } },
+      }),
+      this.prisma.dailyVisit.upsert({
+        where: { date: today },
+        update: { count: { increment: 1 } },
+        create: { date: today, count: 1 },
+      }),
+    ]);
+
+    return updated.viewCount;
+  }
+
+  // 좋아요는 view와 동일한 하루 1회(IP+날짜) 중복방지 패턴, DailyVisit엔 안 남김(글 조회 추이용이라 별개)
+  async recordLike(slug: string, ip: string): Promise<number> {
+    const post = await this.findBySlug(slug, false);
+    const isFirstToday = await this.redis.checkOnce(
+      `like:${slug}:${ip}:${todayDateString()}`,
+      ONE_DAY_SECONDS,
+    );
+
+    if (!isFirstToday) {
+      return post.likeCount;
+    }
+
+    const updated = await this.prisma.post.update({
+      where: { slug },
+      data: { likeCount: { increment: 1 } },
+    });
+
+    return updated.likeCount;
   }
 
   async create(dto: CreatePostDto): Promise<Post> {
