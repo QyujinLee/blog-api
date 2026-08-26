@@ -375,4 +375,10 @@ PORT                                      # Render가 자동 주입 (로컬은 4
     - `POST /posts/{slug}/view`, `POST /posts/{slug}/like` — 인증 없음, `RedisService.checkOnce`(`view:{slug}:{ip}:{yyyy-MM-dd}` / `like:{slug}:{ip}:{yyyy-MM-dd}`, TTL 1일)로 하루 1회만 카운트 증가, 이미 기록된 요청이면 증가 없이 현재 카운트만 반환(둘 다 200, 응답 형태 동일하게 유지). `view`는 `Post.viewCount`와 `DailyVisit`(오늘 날짜 행 +1, UTC 기준)을 `$transaction`으로 함께 갱신, `like`는 `Post.likeCount`만
     - `GET /stats/popular-posts`(`limit`, 기본 5, 최대 50), `GET /stats/visits`(`days`, 기본 30, 최대 90) — visits는 `generate_series` + `LEFT JOIN "DailyVisit"`로 트래픽 없는 날도 0으로 채움(안 그러면 그래프에 구간이 빔), `CURRENT_DATE - (n::int - 1)`로 날짜 범위 생성이 실제로 동작하는지(date+interval 오버로드 자동 캐스팅) 실제 쿼리로 확인
     - 실제 Neon+Redis+프로덕션 빌드로 전부 검증: 한글 제목/태그/본문 부분검색과 relevance 정렬(제목 매칭이 본문 매칭보다 위), category 필터 조합, `q` 없으면 400, view/like 중복방지(같은 IP 재요청 시 카운트 안 늘어남), 존재하지 않는 글 404, popular-posts/visits 실데이터 응답. 테스트로 만든 글 2개와 오염된 `DailyVisit` 테스트 행은 검증 후 정리
-12. Render 배포, 환경변수 설정, 프론트와 실제 연동 테스트
+12. [ ] Render 배포, 환경변수 설정, 프론트와 실제 연동 테스트
+    - GitHub App 연동 초기에 계정 연결이 잘못 잡혀 리포 목록이 안 뜨는 문제 발생 — Render 계정 설정에서 GitHub 연결을 다시 잡아 해결
+    - Region은 **Singapore**로 선택(Neon/Upstash가 전부 싱가포르 리전이라 왕복 지연 최소화)
+    - Build Command: `yarn --frozen-lockfile install; npx prisma generate; npx prisma migrate deploy; yarn build` — `generated/prisma`가 `.gitignore` 대상이라 빌드마다 재생성 필요, `migrate deploy`를 빌드에 포함시켜 배포마다 대기 중인 마이그레이션이 자동 반영되게 함
+    - Start Command: `yarn start:prod`(자동완성된 `yarn start`는 `nest start`라 dev 모드 실행이라 프로덕션에 부적합, `node dist/src/main` 실행하는 `start:prod`로 교체)
+    - Instance Type: Free
+    - 환경변수는 "환경변수 (Render)" 절 목록대로 `.env`에서 그대로 이관(`PORT`는 Render가 자동 주입하므로 수동 등록 제외). `REVALIDATE_WEBHOOK_URL`은 Vercel 프론트 배포 전이라 로컬 값(`http://localhost:3000/api/revalidate`)을 임시로 두고, 프론트 배포 후 실제 도메인으로 교체 예정(Render는 환경변수 변경 시 자동 재배포)
