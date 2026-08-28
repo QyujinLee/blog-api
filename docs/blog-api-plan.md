@@ -80,7 +80,7 @@ NestJS는 Spring Boot를 본떠 만들어진 프레임워크라, 이 문서의 �
 ```
 
 - JWT: 서명 시크릿(`JWT_SECRET`)은 이 서버만 가짐 — 프론트와 공유 안 함(프론트는 서명 검증을 안 하고 이 서버에 위임하기로 했으므로)
-- 만료: 짧게(예: 1시간), 리프레시 토큰 없음 — 만료되면 401, 프론트가 재로그인 유도
+- 만료: 1일(`JWT_EXPIRATION`, 초기엔 1시간이었으나 글 작성 중 세션이 끊기는 문제로 늘림), 리프레시 토큰 없음 — 만료되면 401, 프론트가 재로그인 유도
 - 비밀번호: bcrypt 해시로 저장(평문 저장 금지), 애초에 owner 계정은 1개뿐이라 최초 기동 시 환경변수(`OWNER_EMAIL`, `OWNER_PASSWORD_HASH`)로 시드
 - **Passport는 쓰지 않음** — `@nestjs/jwt`로 토큰 검증하고 커스텀 Guard 두 개(`JwtGuard`, `RolesGuard`)만 만들면 충분. 전략(strategy)이 하나뿐이라 `@nestjs/passport` + `passport-jwt`를 얹으면 의존성만 늘고 얻는 게 없음
 
@@ -337,7 +337,7 @@ src/
 DATABASE_URL                              # Neon pooled 연결 문자열(-pooler) — 앱 런타임 쿼리용
 DIRECT_URL                                # Neon direct 연결 문자열(-pooler 없음) — 마이그레이션 전용
 JWT_SECRET                                # 이 서버만 보유, 프론트와 공유 안 함
-JWT_EXPIRATION                            # 예: 1h
+JWT_EXPIRATION                            # 예: 1d (글 작성 중 세션 끊기는 걸 막기 위해 1h에서 늘림)
 OWNER_EMAIL, OWNER_PASSWORD_HASH          # 최초 기동 시 소유자 계정 시드용 (bcrypt 해시)
 INTERNAL_SECRET                           # /auth/google 보호용, Vercel과 공유
 REVALIDATE_WEBHOOK_URL, REVALIDATE_SECRET # Next.js 재검증 호출용, Vercel과 공유
