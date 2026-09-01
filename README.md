@@ -64,10 +64,10 @@ yarn build      # nest build
 
 ### API 문서
 
-서버 기동 후 `http://localhost:4000/docs`에서 Swagger UI로 전체 엔드포인트를 확인할 수 있습니다.
+서버 기동 후 `http://localhost:4000/docs`에서 Swagger UI로 전체 엔드포인트를 확인할 수 있습니다. 프로덕션: https://blog-api-64hj.onrender.com/docs
 
 ## 진행 상황
 
-글 CRUD(작성/수정/삭제/숨김/고정), 검색(ILIKE 부분 매칭 + 정렬/필터), 조회수·통계, R2 이미지 업로드, 소유자 인증(로그인 시도 제한 포함)까지 구현·검증이 끝나 `blog` 프론트와 연동 중입니다. 댓글, 좋아요, 방문자(Google) 로그인 API도 구현·검증까지 끝났지만, 로그인 없는 방문자 참여 지표는 조회수 하나로 충분하다고 판단해 `blog` 쪽 v1 스코프에서 의도적으로 제외되어 아직 호출되지 않습니다. 배포는 Render(DB: Neon, Redis: Upstash) 기준으로 설계되어 있습니다.
+글 CRUD(작성/수정/삭제/숨김/고정), 검색(ILIKE 부분 매칭 + 정렬/필터), 조회수·통계, R2 이미지 업로드, 소유자 인증(로그인 시도 제한 포함)까지 구현·검증이 끝나 [Render](https://blog-api-64hj.onrender.com)에 배포되어 `blog` 프론트([https://gyujin-log.vercel.app](https://gyujin-log.vercel.app))와 실제로 연동 중입니다(DB: Neon, Redis: Upstash). 댓글, 좋아요, 방문자(Google) 로그인 API도 구현·검증까지 끝났지만, 로그인 없는 방문자 참여 지표는 조회수 하나로 충분하다고 판단해 `blog` 쪽 v1 스코프에서 의도적으로 제외되어 아직 호출되지 않습니다.
 
 단계별 진행 상황과 설계 결정 배경은 [`docs/blog-api-plan.md`](docs/blog-api-plan.md) 참고.
