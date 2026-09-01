@@ -1,98 +1,73 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# gyujin's log API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+개인 기술 블로그의 백엔드 API. 프론트(Next.js BFF, [`blog`](https://github.com/QyujinLee/blog) 저장소)만 호출하는 내부 서버로, 글 CRUD·검색·조회수/좋아요·이미지 업로드·인증을 담당합니다.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+![NestJS](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white) ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white) ![Prisma](https://img.shields.io/badge/Prisma-7-2D3748?logo=prisma&logoColor=white) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-4169E1?logo=postgresql&logoColor=white) ![Redis](https://img.shields.io/badge/Redis-Upstash-DC382D?logo=redis&logoColor=white) ![Jest](https://img.shields.io/badge/Jest-30-C21325?logo=jest&logoColor=white)
 
-## Description
+## 아키텍처
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+브라우저는 이 서버를 직접 호출하지 않습니다 — 모든 요청은 `blog` 저장소의 Next.js Route Handler(BFF)가 서버-to-서버로 보냅니다(그래서 CORS 미설정). 인증 토큰은 BFF가 httpOnly 쿠키로 들고 있다가 `Authorization: Bearer` 헤더로 실어 보내고, 이 서버는 글 CRUD가 성공하면 BFF의 `/api/revalidate`를 웹훅으로 호출해 온디맨드 ISR을 트리거합니다. 전체 아키텍처 다이어그램은 `blog` 저장소의 [README](https://github.com/QyujinLee/blog#아키텍처) 참고.
 
-## Project setup
+설계 배경과 각 결정의 이유(왜 NestJS인지, 왜 Neon/Upstash/R2인지, 인증·레이트리밋·검색 설계 등)는 [`docs/blog-api-plan.md`](docs/blog-api-plan.md)에 정리되어 있습니다.
 
-```bash
-$ yarn install
-```
+## 기술 스택
 
-## Compile and run the project
+| 영역 | 선택 | 비고 |
+|---|---|---|
+| 프레임워크 | NestJS 11 | Render 무료 웹서비스 배포 |
+| 언어 | TypeScript | strict |
+| ORM | Prisma 7 | 커스텀 출력 경로(`generated/prisma`), CJS 강제 생성 |
+| DB | PostgreSQL (Neon) | pooled(`DATABASE_URL`) + direct(`DIRECT_URL`, 마이그레이션용) |
+| 캐시/카운터 | Redis (Upstash) | 로그인 브루트포스 방어, 조회수/좋아요 중복 방지(IP+day) |
+| 이미지 저장 | Cloudflare R2 (S3 호환, `@aws-sdk/client-s3`) | 프론트가 `**.r2.dev` public URL로 직접 서빙 |
+| 인증 | `@nestjs/jwt` + bcrypt | 소유자(이메일/비밀번호), 방문자(Google 프로필, v1 프론트 미연결) |
+| 검증 | `class-validator` + `ValidationPipe` | DTO 화이트리스트, 여분 필드 400 거부 |
+| API 문서 | `@nestjs/swagger` | `/docs` |
+| 테스트 | Jest, Supertest | 유닛(`*.spec.ts`) + e2e |
+
+## 로컬 개발
 
 ```bash
-# development
-$ yarn run start
-
-# watch mode
-$ yarn run start:dev
-
-# production mode
-$ yarn run start:prod
+yarn install
+yarn dev        # http://localhost:4000 (NODE_OPTIONS=--experimental-global-webcrypto 포함 watch 모드)
 ```
 
-## Run tests
+Node 버전은 `.nvmrc`(v24) 기준입니다. `nvm use`로 맞춰주세요.
+
+`.env`에 아래 환경변수가 필요합니다(값은 커밋되지 않음):
+
+| 변수 | 용도 |
+|---|---|
+| `DATABASE_URL`, `DIRECT_URL` | Neon Postgres (pooled / direct) |
+| `JWT_SECRET`, `JWT_EXPIRATION` | JWT 서명/만료 |
+| `OWNER_EMAIL`, `OWNER_PASSWORD_HASH` | 서버 기동 시 소유자 계정 자동 upsert(`OwnerSeedService`) — 비밀번호는 평문이 아니라 bcrypt 해시값 |
+| `REDIS_URL` | Upstash Redis |
+| `REVALIDATE_WEBHOOK_URL`, `REVALIDATE_SECRET` | 글 CRUD 성공 시 `blog`의 `/api/revalidate` 웹훅 호출 |
+| `INTERNAL_SECRET` | `blog`(BFF)만 호출 가능하게 제한하는 공유 시크릿(`x-internal-secret` 헤더) |
+
+DB 스키마를 바꿨다면:
 
 ```bash
-# unit tests
-$ yarn run test
-
-# e2e tests
-$ yarn run test:e2e
-
-# test coverage
-$ yarn run test:cov
+npx prisma migrate dev   # 로컬 마이그레이션 적용
+npx prisma generate      # 클라이언트 재생성 (generated/prisma)
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### 테스트
 
 ```bash
-$ yarn install -g @nestjs/mau
-$ mau deploy
+yarn lint       # ESLint --fix
+yarn test       # Jest 유닛 테스트
+yarn test:cov   # 커버리지
+yarn test:e2e   # test/jest-e2e.json 설정으로 e2e 테스트
+yarn build      # nest build
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### API 문서
 
-## Resources
+서버 기동 후 `http://localhost:4000/docs`에서 Swagger UI로 전체 엔드포인트를 확인할 수 있습니다.
 
-Check out a few resources that may come in handy when working with NestJS:
+## 진행 상황
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+글 CRUD(작성/수정/삭제/숨김/고정), 검색(ILIKE 부분 매칭 + 정렬/필터), 조회수·통계, R2 이미지 업로드, 소유자 인증(로그인 시도 제한 포함)까지 구현·검증이 끝나 `blog` 프론트와 연동 중입니다. 댓글, 좋아요, 방문자(Google) 로그인 API도 구현·검증까지 끝났지만, 로그인 없는 방문자 참여 지표는 조회수 하나로 충분하다고 판단해 `blog` 쪽 v1 스코프에서 의도적으로 제외되어 아직 호출되지 않습니다. 배포는 Render(DB: Neon, Redis: Upstash) 기준으로 설계되어 있습니다.
 
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+단계별 진행 상황과 설계 결정 배경은 [`docs/blog-api-plan.md`](docs/blog-api-plan.md) 참고.
