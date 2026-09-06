@@ -24,6 +24,7 @@ import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { AuthenticatedUser } from '../auth/jwt-payload.interface';
+import { clientIp } from '../common/client-ip';
 
 type RequestWithOptionalUser = Request & { user?: AuthenticatedUser };
 
@@ -76,7 +77,7 @@ export class PostController {
   ): Promise<{ viewCount: number }> {
     const viewCount = await this.postService.recordView(
       slug,
-      request.ip ?? 'unknown',
+      clientIp(request),
     );
     return { viewCount };
   }
@@ -89,7 +90,7 @@ export class PostController {
   ): Promise<{ likeCount: number }> {
     const likeCount = await this.postService.recordLike(
       slug,
-      request.ip ?? 'unknown',
+      clientIp(request),
     );
     return { likeCount };
   }

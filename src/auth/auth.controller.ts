@@ -16,6 +16,7 @@ import { GoogleLoginDto } from './dto/google-login.dto';
 import { JwtGuard } from './jwt.guard';
 import { InternalSecretGuard } from './internal-secret.guard';
 import { AuthenticatedUser } from './jwt-payload.interface';
+import { clientIp } from '../common/client-ip';
 
 @Controller('auth')
 export class AuthController {
@@ -33,7 +34,7 @@ export class AuthController {
     const token = await this.authService.login(
       dto.email,
       dto.password,
-      request.ip ?? 'unknown',
+      clientIp(request),
     );
     return { token };
   }

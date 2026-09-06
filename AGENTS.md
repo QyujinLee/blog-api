@@ -42,3 +42,7 @@ Next.js BFF(별도 저장소 `blog`)만 호출하는 내부 API — 브라우저
 ## 환경 변수
 
 `.env`에 정의(값은 커밋 안 됨): `DATABASE_URL`, `DIRECT_URL`(Neon), `JWT_SECRET`, `JWT_EXPIRATION`, `OWNER_EMAIL`, `OWNER_PASSWORD_HASH`, `REDIS_URL`(Upstash), `REVALIDATE_WEBHOOK_URL`, `REVALIDATE_SECRET`, `INTERNAL_SECRET`.
+
+## 방문자 IP는 `clientIp(request)`로 읽는다
+
+`request.ip`를 직접 쓰지 말 것. 요청은 브라우저가 아니라 Next.js BFF(Vercel)가 대신 보내므로 `request.ip`는 항상 Vercel 함수 IP 하나로 고정된다 — 그대로 쓰면 조회수 중복 제거(IP+날짜)와 로그인 시도 제한이 전역 버킷 하나로 뭉개진다. `common/client-ip.ts`의 `clientIp()`는 `INTERNAL_SECRET`이 맞을 때만 BFF가 넘긴 `x-client-ip`를 신뢰하고, 아니면 `request.ip`로 떨어진다(시크릿 없이 헤더만 위조하는 스푸핑 차단 — `client-ip.spec.ts`가 검증).
