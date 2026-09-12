@@ -24,6 +24,7 @@
 | 검증 | `class-validator` + `ValidationPipe` | DTO 화이트리스트, 여분 필드 400 거부 |
 | API 문서 | `@nestjs/swagger` | `/docs` |
 | 테스트 | Jest, Supertest | 유닛(`*.spec.ts`) + e2e |
+| CI | GitHub Actions | PR마다 `prisma generate` → `lint:ci` → `build` → `test` |
 
 ## 로컬 개발
 

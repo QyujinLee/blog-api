@@ -46,3 +46,11 @@ Next.js BFF(별도 저장소 `blog`)만 호출하는 내부 API — 브라우저
 ## 방문자 IP는 `clientIp(request)`로 읽는다
 
 `request.ip`를 직접 쓰지 말 것. 요청은 브라우저가 아니라 Next.js BFF(Vercel)가 대신 보내므로 `request.ip`는 항상 Vercel 함수 IP 하나로 고정된다 — 그대로 쓰면 조회수 중복 제거(IP+날짜)와 로그인 시도 제한이 전역 버킷 하나로 뭉개진다. `common/client-ip.ts`의 `clientIp()`는 `INTERNAL_SECRET`이 맞을 때만 BFF가 넘긴 `x-client-ip`를 신뢰하고, 아니면 `request.ip`로 떨어진다(시크릿 없이 헤더만 위조하는 스푸핑 차단 — `client-ip.spec.ts`가 검증).
+
+## 프론트가 안 쓰는 엔드포인트 (댓글·좋아요·Google 로그인)
+
+`comment` 모듈, `POST /posts/:slug/like`, `POST /auth/google`은 구현·검증은 끝났지만 `blog` 프론트가 호출하지 않는다(v1 스코프에서 의도적으로 제외). 공개 서버에 열려 있지만 방문자가 실제로 도달할 수는 없다 — 댓글 작성은 `JwtGuard`가 걸려 있고, 방문자용 토큰을 발급하는 유일한 경로인 `POST /auth/google`은 `InternalSecretGuard`(`INTERNAL_SECRET`)로 막혀 있으며 BFF가 이 경로를 호출하지 않기 때문이다. 즉 **소유자 토큰 외에는 토큰 자체가 발급되지 않는다.** 나중에 프론트에 붙일 때 이 전제가 깨지므로, 방문자 로그인을 여는 순간 댓글 쪽 레이트리밋·검증을 먼저 확인할 것.
+
+## CI
+
+`.github/workflows/ci.yml`이 PR마다 `prisma generate` → `lint:ci` → `build` → `test`를 돌린다. `yarn lint`는 `--fix`가 붙어 파일을 고쳐버리므로 CI에서는 반드시 `lint:ci`를 쓴다. DB/Redis가 필요한 `test:e2e`는 CI에서 돌리지 않는다(외부 서비스 자격증명 필요).
