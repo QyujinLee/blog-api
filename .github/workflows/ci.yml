@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+
+      - run: yarn install --frozen-lockfile
+
+      # Prisma Client는 generated/ 로 따로 뽑는 구조라 빌드·타입체크 전에 먼저 생성해야 함.
+      # generate 자체는 DB에 붙지 않지만 설정 로딩 때문에 값은 하나 필요하다.
+      - run: yarn prisma generate
+        env:
+          DATABASE_URL: postgresql://user:pass@localhost:5432/db
+          DIRECT_URL: postgresql://user:pass@localhost:5432/db
+
+      - run: yarn lint:ci
+
+      - run: yarn build
+
+      - run: yarn test
