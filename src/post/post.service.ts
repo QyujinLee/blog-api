@@ -36,7 +36,13 @@ export class PostService {
     private readonly redis: RedisService,
   ) {}
 
-  async findAll(isOwner: boolean, query: FindAllQuery): Promise<Post[]> {
+  // 목록엔 body(마크다운 원문)를 싣지 않는다 — 프론트 사이드바가 모든 페이지에서 이 목록으로
+  // 태그 개수를 집계하는데, 본문까지 실려 오면 글이 쌓일수록 매 페이지 수백 KB가 오간다.
+  // 본문이 필요한 상세/수정 화면은 findBySlug(단건)로 따로 가져간다.
+  async findAll(
+    isOwner: boolean,
+    query: FindAllQuery,
+  ): Promise<Omit<Post, 'body'>[]> {
     return this.prisma.post.findMany({
       where: {
         hidden: isOwner ? undefined : false,
@@ -44,6 +50,7 @@ export class PostService {
         seriesSlug: query.series,
         tags: query.tags?.length ? { hasEvery: query.tags } : undefined,
       },
+      omit: { body: true },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -61,13 +68,18 @@ export class PostService {
   // 한글은 to_tsvector가 어절 단위로만 토큰화돼 부분검색이 안 되고(예: "인증과" 안에서 "인증" 검색 실패),
   // pg_trgm 유사도도 짧은 검색어 대비 긴 제목에선 기본 임계값을 못 넘어 매칭이 안 됨(둘 다 실제 Neon으로 확인).
   // 그래서 ILIKE 부분문자열 매칭 + title(3) > tags(2) > body(1) 수동 가중치 정렬로 구현
-  async search(isOwner: boolean, query: SearchQuery): Promise<Post[]> {
+  // findAll과 같은 이유로 본문은 빼고 내려준다(검색 결과 목록도 title/summary만 쓴다).
+  // ORDER BY의 body ILIKE 가중치는 SELECT 목록과 무관하게 그대로 동작한다.
+  async search(
+    isOwner: boolean,
+    query: SearchQuery,
+  ): Promise<Omit<Post, 'body'>[]> {
     const category = query.category ?? null;
     const tags = query.tags?.length ? query.tags : null;
 
     if (query.sort === 'latest') {
-      return this.prisma.$queryRaw<Post[]>`
-        SELECT * FROM "Post"
+      return this.prisma.$queryRaw<Omit<Post, 'body'>[]>`
+        SELECT id, slug, title, summary, "categorySlug", tags, "seriesSlug", "seriesTitle", "seriesOrder", pinned, hidden, "viewCount", "likeCount", "createdAt", "updatedAt" FROM "Post"
         WHERE (hidden = false OR ${isOwner})
           AND (title ILIKE '%' || ${query.q} || '%'
             OR ${query.q} = ANY(tags)
@@ -78,8 +90,8 @@ export class PostService {
       `;
     }
 
-    return this.prisma.$queryRaw<Post[]>`
-      SELECT * FROM "Post"
+    return this.prisma.$queryRaw<Omit<Post, 'body'>[]>`
+      SELECT id, slug, title, summary, "categorySlug", tags, "seriesSlug", "seriesTitle", "seriesOrder", pinned, hidden, "viewCount", "likeCount", "createdAt", "updatedAt" FROM "Post"
       WHERE (hidden = false OR ${isOwner})
         AND (title ILIKE '%' || ${query.q} || '%'
           OR ${query.q} = ANY(tags)
